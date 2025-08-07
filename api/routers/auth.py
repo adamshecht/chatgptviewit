@@ -1,5 +1,6 @@
 """
-Authentication router for CityScrape API
+Authentication router for BrightStone Property Monitoring System
+Updated for single-document pipeline architecture
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -15,7 +16,7 @@ router = APIRouter()
 security = HTTPBearer()
 
 # JWT settings
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "cityscrape-super-secure-jwt-key-2024-change-in-production")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "brightstone-super-secure-jwt-key-2024-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
@@ -29,11 +30,11 @@ class LoginResponse(BaseModel):
     user: dict
 
 class UserInfo(BaseModel):
-    id: str
+    id: str  # UUID as string
     email: str
     first_name: Optional[str]
     last_name: Optional[str]
-    company_id: str
+    company_id: int  # Changed from str to int
     role: str
 
 def create_access_token(data: dict):
@@ -51,10 +52,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         if credentials.credentials == "test-token":
             return UserInfo(
                 id="dev-user-1",
-                email="dev@cityscrape.ai",
+                email="dev@brightstone.ca",
                 first_name="Development",
                 last_name="User",
-                company_id="adam_shechtman_company_498854",
+                company_id=29,  # Use integer company_id
                 role="admin"
             )
     
@@ -72,7 +73,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             email=payload.get("email"),
             first_name=payload.get("first_name"),
             last_name=payload.get("last_name"),
-            company_id=payload.get("company_id"),
+            company_id=payload.get("company_id"),  # Now integer
             role=payload.get("role")
         )
     except jwt.ExpiredSignatureError:
@@ -119,7 +120,7 @@ async def login(request: LoginRequest, conn = Depends(get_pg_connection)):
         "email": user["email"],
         "first_name": user["first_name"],
         "last_name": user["last_name"],
-        "company_id": user["company_id"],
+        "company_id": user["company_id"],  # Now integer
         "role": user["role"]
     })
     
@@ -136,7 +137,7 @@ async def login(request: LoginRequest, conn = Depends(get_pg_connection)):
             "email": user["email"],
             "first_name": user["first_name"],
             "last_name": user["last_name"],
-            "company_id": user["company_id"],
+            "company_id": user["company_id"],  # Now integer
             "role": user["role"]
         }
     )

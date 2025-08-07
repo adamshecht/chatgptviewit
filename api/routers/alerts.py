@@ -1,10 +1,11 @@
 """
-Alerts router for CityScrape API
+Alerts router for BrightStone Property Monitoring System
+Updated for single-document pipeline architecture
 """
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from db import get_pg_connection
 from routers.auth import get_current_user, UserInfo
@@ -14,26 +15,30 @@ router = APIRouter()
 
 class AlertResponse(BaseModel):
     id: int
-    document_id: str
-    meeting_type: str
-    meeting_date: datetime
-    municipality: str
-    title: str
+    company_id: int
+    document_id: int
+    property_id: Optional[int]
+    # Joined data from document -> meeting -> municipality
+    municipality_name: Optional[str]
+    meeting_type: Optional[str]
+    meeting_date: Optional[datetime]
+    title: Optional[str]
     url: Optional[str]
     storage_key: Optional[str]
     review_status: str
     resolved_at: Optional[datetime]
-    property_matches: List[str]
-    rule_matches: List[str]
-    relevance_score: float
+    property_matches: Optional[Dict[str, Any]]
+    rule_matches: Optional[Dict[str, Any]]
+    relevance_score: Optional[float]
     created_at: datetime
+    updated_at: datetime
     comment_count: int
 
 class AlertComment(BaseModel):
     comment: str
 
 class AlertStatusUpdate(BaseModel):
-    status: str  # pending, reviewing, resolved, false_positive
+    status: str  # pending, reviewed, resolved
 
 @router.get("/", response_model=List[AlertResponse])
 async def get_alerts(
@@ -47,7 +52,7 @@ async def get_alerts(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0)
 ):
-    """Get alerts (flagged items) for the current user's company"""
+    """Get alerts for the current user's company"""
     
     query = """
         WITH alert_comments AS (
@@ -59,10 +64,9 @@ async def get_alerts(
         )
         SELECT 
             a.id,
+            a.company_id,
             a.document_id,
-            a.meeting_type,
-            a.meeting_date,
-            a.municipality,
+            a.property_id,
             a.title,
             a.url,
             a.storage_key,
@@ -72,8 +76,16 @@ async def get_alerts(
             a.rule_matches,
             a.relevance_score,
             a.created_at,
+            a.updated_at,
+            -- Joined data from document -> meeting -> municipality
+            m.name as municipality_name,
+            mt.type as meeting_type,
+            mt.start_at_local as meeting_date,
             COALESCE(ac.comment_count, 0) as comment_count
         FROM alerts a
+        JOIN documents d ON d.id = a.document_id
+        JOIN meetings mt ON mt.id = d.meeting_id
+        JOIN municipalities m ON m.id = mt.municipality_id
         LEFT JOIN alert_comments ac ON a.id = ac.alert_id
         WHERE a.company_id = $1
     """
@@ -88,7 +100,7 @@ async def get_alerts(
         param_count += 1
     
     if municipality:
-        query += f" AND LOWER(a.municipality) = LOWER(${param_count})"
+        query += f" AND LOWER(m.name) = LOWER(${param_count})"
         params.append(municipality)
         param_count += 1
     
@@ -98,12 +110,12 @@ async def get_alerts(
         param_count += 1
     
     if start_date:
-        query += f" AND a.meeting_date >= ${param_count}"
+        query += f" AND mt.start_at_local >= ${param_count}"
         params.append(start_date)
         param_count += 1
     
     if end_date:
-        query += f" AND a.meeting_date <= ${param_count}"
+        query += f" AND mt.start_at_local <= ${param_count}"
         params.append(end_date)
         param_count += 1
     
@@ -119,19 +131,22 @@ async def get_alerts(
             for row in rows:
                 alerts.append(AlertResponse(
                     id=row['id'],
+                    company_id=row['company_id'],
                     document_id=row['document_id'],
+                    property_id=row['property_id'],
+                    municipality_name=row['municipality_name'],
                     meeting_type=row['meeting_type'],
                     meeting_date=row['meeting_date'],
-                    municipality=row['municipality'],
                     title=row['title'],
                     url=row['url'],
                     storage_key=row['storage_key'],
                     review_status=row['review_status'],
                     resolved_at=row['resolved_at'],
-                    property_matches=json.loads(row['property_matches']) if row['property_matches'] else [],
-                    rule_matches=json.loads(row['rule_matches']) if row['rule_matches'] else [],
+                    property_matches=row['property_matches'],
+                    rule_matches=row['rule_matches'],
                     relevance_score=row['relevance_score'],
                     created_at=row['created_at'],
+                    updated_at=row['updated_at'],
                     comment_count=row['comment_count']
                 ))
             
@@ -157,8 +172,15 @@ async def get_alert(
         )
         SELECT 
             a.*,
+            -- Joined data from document -> meeting -> municipality
+            m.name as municipality_name,
+            mt.type as meeting_type,
+            mt.start_at_local as meeting_date,
             COALESCE(ac.comment_count, 0) as comment_count
         FROM alerts a
+        JOIN documents d ON d.id = a.document_id
+        JOIN meetings mt ON mt.id = d.meeting_id
+        JOIN municipalities m ON m.id = mt.municipality_id
         LEFT JOIN alert_comments ac ON a.id = ac.alert_id
         WHERE a.id = $1 AND a.company_id = $2
     """
@@ -170,19 +192,22 @@ async def get_alert(
     
     return AlertResponse(
         id=row['id'],
+        company_id=row['company_id'],
         document_id=row['document_id'],
+        property_id=row['property_id'],
+        municipality_name=row['municipality_name'],
         meeting_type=row['meeting_type'],
         meeting_date=row['meeting_date'],
-        municipality=row['municipality'],
         title=row['title'],
         url=row['url'],
         storage_key=row['storage_key'],
         review_status=row['review_status'],
         resolved_at=row['resolved_at'],
-        property_matches=json.loads(row['property_matches']) if row['property_matches'] else [],
-        rule_matches=json.loads(row['rule_matches']) if row['rule_matches'] else [],
+        property_matches=row['property_matches'],
+        rule_matches=row['rule_matches'],
         relevance_score=row['relevance_score'],
         created_at=row['created_at'],
+        updated_at=row['updated_at'],
         comment_count=row['comment_count']
     )
 
@@ -203,7 +228,7 @@ async def update_alert_status(
         raise HTTPException(status_code=404, detail="Alert not found")
     
     # Update status
-    resolved_at = datetime.utcnow() if status_update.status in ['resolved', 'false_positive'] else None
+    resolved_at = datetime.utcnow() if status_update.status == 'resolved' else None
     
     update_query = """
         UPDATE alerts 
@@ -222,19 +247,17 @@ async def update_alert_status(
     
     # Log audit trail
     audit_query = """
-        INSERT INTO audit_trails (company_id, user_id, action, details, created_at)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO audit_trails (company_id, action, details, created_at)
+        VALUES ($1, $2, $3, $4)
     """
     
     await conn.execute(
         audit_query,
         current_user.company_id,
-        current_user.id,
         'alert_status_updated',
         json.dumps({
             'alert_id': alert_id,
-            'new_status': status_update.status,
-            'old_status': 'pending'  # Would need to fetch old status in real implementation
+            'new_status': status_update.status
         }),
         datetime.utcnow()
     )

@@ -1,5 +1,6 @@
 """
-Properties router for CityScrape API
+Properties router for BrightStone Property Monitoring System
+Updated for single-document pipeline architecture
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -16,17 +17,19 @@ class PropertyCreate(BaseModel):
     address: str
     city: str
     province: str
-    postal_code: Optional[str]
-    property_type: Optional[str]
-    size_sqft: Optional[int]
-    year_built: Optional[int]
-    zoning: Optional[str]
+    municipality_id: Optional[int] = None
+    postal_code: Optional[str] = None
+    property_type: Optional[str] = None
+    size_sqft: Optional[int] = None
+    year_built: Optional[int] = None
+    zoning: Optional[str] = None
     notes: Optional[str] = None
 
 class PropertyUpdate(BaseModel):
     address: Optional[str] = None
     city: Optional[str] = None
     province: Optional[str] = None
+    municipality_id: Optional[int] = None
     postal_code: Optional[str] = None
     property_type: Optional[str] = None
     size_sqft: Optional[int] = None
@@ -36,17 +39,20 @@ class PropertyUpdate(BaseModel):
 
 class PropertyResponse(BaseModel):
     id: int
+    company_id: int
+    municipality_id: Optional[int]
+    municipality_name: Optional[str]  # Joined from municipality table
     address: str
-    city: Optional[str]
-    province: Optional[str]
+    city: str
+    province: str
     postal_code: Optional[str]
     property_type: Optional[str]
     zoning: Optional[str]
     size_sqft: Optional[int]
     year_built: Optional[int]
     notes: Optional[str]
-    company_id: str
     created_at: datetime
+    updated_at: datetime
 
 @router.get("/", response_model=List[PropertyResponse])
 async def get_properties(
@@ -54,18 +60,23 @@ async def get_properties(
     conn = Depends(get_pg_connection)
 ):
     """Get all properties for the current user's company"""
-    # Production mode: use database
     properties = await conn.fetch("""
-        SELECT id, address, city, province, postal_code, property_type, zoning, 
-               size_sqft, year_built, notes, company_id, created_at
-        FROM properties
-        WHERE company_id = $1
-        ORDER BY created_at DESC
+        SELECT p.id, p.company_id, p.municipality_id, p.address, p.city, p.province, 
+               p.postal_code, p.property_type, p.zoning, p.size_sqft, p.year_built, 
+               p.notes, p.created_at, p.updated_at,
+               m.name as municipality_name
+        FROM properties p
+        LEFT JOIN municipalities m ON m.id = p.municipality_id
+        WHERE p.company_id = $1
+        ORDER BY p.created_at DESC
     """, current_user.company_id)
     
     return [
         PropertyResponse(
             id=prop["id"],
+            company_id=prop["company_id"],
+            municipality_id=prop["municipality_id"],
+            municipality_name=prop["municipality_name"],
             address=prop["address"],
             city=prop["city"],
             province=prop["province"],
@@ -75,13 +86,11 @@ async def get_properties(
             size_sqft=prop["size_sqft"],
             year_built=prop["year_built"],
             notes=prop["notes"],
-            company_id=prop["company_id"],
-            created_at=prop["created_at"]
+            created_at=prop["created_at"],
+            updated_at=prop["updated_at"]
         )
         for prop in properties
     ]
-
-
 
 @router.post("/", response_model=PropertyResponse)
 async def create_property(
@@ -92,15 +101,16 @@ async def create_property(
     """Create a new property (admin only)"""
     result = await conn.fetchrow("""
         INSERT INTO properties (
-            company_id, address, city, province, postal_code,
+            company_id, municipality_id, address, city, province, postal_code,
             property_type, size_sqft, year_built, zoning, notes
         ) VALUES (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
         )
-        RETURNING id, address, city, province, postal_code, property_type,
-                  size_sqft, year_built, zoning, notes, company_id, created_at
+        RETURNING id, company_id, municipality_id, address, city, province, postal_code, 
+                  property_type, size_sqft, year_built, zoning, notes, created_at, updated_at
     """,
         current_user.company_id,
+        property.municipality_id,
         property.address,
         property.city,
         property.province,
@@ -111,8 +121,19 @@ async def create_property(
         property.zoning,
         property.notes)
     
+    # Get municipality name
+    municipality_name = None
+    if result["municipality_id"]:
+        municipality_name = await conn.fetchval(
+            "SELECT name FROM municipalities WHERE id = $1",
+            result["municipality_id"]
+        )
+    
     return PropertyResponse(
         id=result["id"],
+        company_id=result["company_id"],
+        municipality_id=result["municipality_id"],
+        municipality_name=municipality_name,
         address=result["address"],
         city=result["city"],
         province=result["province"],
@@ -122,8 +143,8 @@ async def create_property(
         year_built=result["year_built"],
         zoning=result["zoning"],
         notes=result["notes"],
-        company_id=result["company_id"],
-        created_at=result["created_at"]
+        created_at=result["created_at"],
+        updated_at=result["updated_at"]
     )
 
 @router.get("/{property_id}", response_model=PropertyResponse)
@@ -134,9 +155,13 @@ async def get_property(
 ):
     """Get a specific property"""
     property = await conn.fetchrow("""
-        SELECT id, address, city, province, postal_code, property_type, size_sqft, year_built, zoning, notes, company_id, created_at
-        FROM properties
-        WHERE id = $1 AND company_id = $2
+        SELECT p.id, p.company_id, p.municipality_id, p.address, p.city, p.province, 
+               p.postal_code, p.property_type, p.zoning, p.size_sqft, p.year_built, 
+               p.notes, p.created_at, p.updated_at,
+               m.name as municipality_name
+        FROM properties p
+        LEFT JOIN municipalities m ON m.id = p.municipality_id
+        WHERE p.id = $1 AND p.company_id = $2
     """, property_id, current_user.company_id)
     
     if not property:
@@ -147,6 +172,9 @@ async def get_property(
     
     return PropertyResponse(
         id=property["id"],
+        company_id=property["company_id"],
+        municipality_id=property["municipality_id"],
+        municipality_name=property["municipality_name"],
         address=property["address"],
         city=property["city"],
         province=property["province"],
@@ -156,8 +184,8 @@ async def get_property(
         year_built=property["year_built"],
         zoning=property["zoning"],
         notes=property["notes"],
-        company_id=property["company_id"],
-        created_at=property["created_at"]
+        created_at=property["created_at"],
+        updated_at=property["updated_at"]
     )
 
 @router.put("/{property_id}", response_model=PropertyResponse)
@@ -173,6 +201,7 @@ async def update_property(
         "address": property_update.address,
         "city": property_update.city,
         "province": property_update.province,
+        "municipality_id": property_update.municipality_id,
         "postal_code": property_update.postal_code,
         "property_type": property_update.property_type,
         "size_sqft": property_update.size_sqft,
@@ -189,7 +218,6 @@ async def update_property(
             values.append(val)
             param_count += 1
     
-    
     if not updates:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -203,7 +231,8 @@ async def update_property(
         UPDATE properties
         SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
         WHERE id = ${param_count} AND company_id = ${param_count + 1}
-        RETURNING id, address, city, province, postal_code, property_type, size_sqft, year_built, zoning, notes, company_id, created_at
+        RETURNING id, company_id, municipality_id, address, city, province, postal_code, 
+                  property_type, size_sqft, year_built, zoning, notes, created_at, updated_at
     """
     
     result = await conn.fetchrow(query, *values)
@@ -214,8 +243,19 @@ async def update_property(
             detail="Property not found"
         )
     
+    # Get municipality name
+    municipality_name = None
+    if result["municipality_id"]:
+        municipality_name = await conn.fetchval(
+            "SELECT name FROM municipalities WHERE id = $1",
+            result["municipality_id"]
+        )
+    
     return PropertyResponse(
         id=result["id"],
+        company_id=result["company_id"],
+        municipality_id=result["municipality_id"],
+        municipality_name=municipality_name,
         address=result["address"],
         city=result["city"],
         province=result["province"],
@@ -225,8 +265,8 @@ async def update_property(
         year_built=result["year_built"],
         zoning=result["zoning"],
         notes=result["notes"],
-        company_id=result["company_id"],
-        created_at=result["created_at"]
+        created_at=result["created_at"],
+        updated_at=result["updated_at"]
     )
 
 @router.delete("/{property_id}")
