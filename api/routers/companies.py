@@ -317,3 +317,149 @@ async def remove_user(
     )
     
     return {"message": f"User {user_email} removed successfully"}
+
+@router.get("/municipalities")
+async def get_company_municipalities(
+    current_user: UserInfo = Depends(get_current_user),
+    conn = Depends(get_pg_connection)
+):
+    """Get municipalities that the company is subscribed to"""
+    
+    query = """
+        SELECT 
+            m.id,
+            m.name,
+            m.feed_url,
+            cm.created_at as subscribed_at
+        FROM municipalities m
+        JOIN company_municipalities cm ON cm.municipality_id = m.id
+        WHERE cm.company_id = $1
+        ORDER BY m.name
+    """
+    
+    rows = await conn.fetch(query, current_user.company_id)
+    
+    municipalities = []
+    for row in rows:
+        municipalities.append({
+            "id": row['id'],
+            "name": row['name'],
+            "feed_url": row['feed_url'],
+            "subscribed_at": row['subscribed_at'].isoformat()
+        })
+    
+    return municipalities
+
+@router.put("/municipalities")
+async def update_company_municipalities(
+    municipality_ids: List[int],
+    current_user: UserInfo = Depends(get_current_user),
+    conn = Depends(get_pg_connection)
+):
+    """Update company's municipality subscriptions"""
+    
+    # Only admins can update municipality subscriptions
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Only admins can update municipality subscriptions")
+    
+    # Remove existing subscriptions
+    delete_query = "DELETE FROM company_municipalities WHERE company_id = $1"
+    await conn.execute(delete_query, current_user.company_id)
+    
+    # Add new subscriptions
+    if municipality_ids:
+        insert_query = """
+            INSERT INTO company_municipalities (company_id, municipality_id, created_at)
+            VALUES ($1, $2, $3)
+        """
+        for municipality_id in municipality_ids:
+            await conn.execute(
+                insert_query,
+                current_user.company_id,
+                municipality_id,
+                datetime.utcnow()
+            )
+    
+    # Log audit trail
+    audit_query = """
+        INSERT INTO audit_trails (company_id, action, details, created_at)
+        VALUES ($1, $2, $3, $4)
+    """
+    
+    await conn.execute(
+        audit_query,
+        current_user.company_id,
+        'municipalities_updated',
+        json.dumps({'municipality_ids': municipality_ids}),
+        datetime.utcnow()
+    )
+    
+    return {"message": f"Updated to {len(municipality_ids)} municipalities"}
+
+@router.get("/settings")
+async def get_company_settings(
+    current_user: UserInfo = Depends(get_current_user),
+    conn = Depends(get_pg_connection)
+):
+    """Get company settings"""
+    
+    query = """
+        SELECT 
+            name,
+            email_config,
+            rules_json,
+            storage_prefix,
+            created_at,
+            updated_at
+        FROM companies
+        WHERE id = $1
+    """
+    
+    row = await conn.fetchrow(query, current_user.company_id)
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    return {
+        "name": row['name'],
+        "email_config": row['email_config'],
+        "rules_json": row['rules_json'],
+        "storage_prefix": row['storage_prefix'],
+        "created_at": row['created_at'].isoformat(),
+        "updated_at": row['updated_at'].isoformat() if row['updated_at'] else None
+    }
+
+@router.put("/settings")
+async def update_company_settings(
+    settings: dict,
+    current_user: UserInfo = Depends(get_current_user),
+    conn = Depends(get_pg_connection)
+):
+    """Update company settings"""
+    
+    # Only admins can update settings
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Only admins can update company settings")
+    
+    update_query = """
+        UPDATE companies
+        SET 
+            name = COALESCE($1, name),
+            email_config = COALESCE($2, email_config),
+            rules_json = COALESCE($3, rules_json),
+            storage_prefix = COALESCE($4, storage_prefix),
+            updated_at = $5
+        WHERE id = $6
+    """
+    
+    await conn.execute(
+        update_query,
+        settings.get('name'),
+        json.dumps(settings.get('email_config')) if settings.get('email_config') else None,
+        json.dumps(settings.get('rules_json')) if settings.get('rules_json') else None,
+        settings.get('storage_prefix'),
+        datetime.utcnow(),
+        current_user.company_id
+    )
+    
+    return {"message": "Company settings updated successfully"}

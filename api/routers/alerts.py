@@ -5,7 +5,7 @@ Updated for single-document pipeline architecture
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from datetime import datetime, date
 from db import get_pg_connection
 from routers.auth import get_current_user, UserInfo
@@ -27,8 +27,8 @@ class AlertResponse(BaseModel):
     storage_key: Optional[str]
     review_status: str
     resolved_at: Optional[datetime]
-    property_matches: Optional[Dict[str, Any]]
-    rule_matches: Optional[Dict[str, Any]]
+    property_matches: Optional[Union[Dict[str, Any], List[str]]]
+    rule_matches: Optional[Union[Dict[str, Any], List[str]]]
     relevance_score: Optional[float]
     created_at: datetime
     updated_at: datetime
@@ -142,8 +142,8 @@ async def get_alerts(
                     storage_key=row['storage_key'],
                     review_status=row['review_status'],
                     resolved_at=row['resolved_at'],
-                    property_matches=row['property_matches'],
-                    rule_matches=row['rule_matches'],
+                    property_matches=row['property_matches'] if isinstance(row['property_matches'], dict) else (json.loads(row['property_matches']) if isinstance(row['property_matches'], str) else row['property_matches']),
+                    rule_matches=row['rule_matches'] if isinstance(row['rule_matches'], dict) else (json.loads(row['rule_matches']) if isinstance(row['rule_matches'], str) else row['rule_matches']),
                     relevance_score=row['relevance_score'],
                     created_at=row['created_at'],
                     updated_at=row['updated_at'],
@@ -203,8 +203,8 @@ async def get_alert(
         storage_key=row['storage_key'],
         review_status=row['review_status'],
         resolved_at=row['resolved_at'],
-        property_matches=row['property_matches'],
-        rule_matches=row['rule_matches'],
+        property_matches=row['property_matches'] if isinstance(row['property_matches'], dict) else (json.loads(row['property_matches']) if isinstance(row['property_matches'], str) else row['property_matches']),
+        rule_matches=row['rule_matches'] if isinstance(row['rule_matches'], dict) else (json.loads(row['rule_matches']) if isinstance(row['rule_matches'], str) else row['rule_matches']),
         relevance_score=row['relevance_score'],
         created_at=row['created_at'],
         updated_at=row['updated_at'],

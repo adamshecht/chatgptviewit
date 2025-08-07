@@ -71,70 +71,15 @@ export const apiClient = {
   // Alerts
   alerts: {
     list: async (params?: any) => {
-      // Temporary mock data for testing
-      return [
-        {
-          id: 1,
-          title: "Zoning By-law Amendment - King Street West",
-          review_status: "pending",
-          relevance_score: 0.95,
-          municipality: "Toronto",
-          property_matches: ["123 King Street West"],
-          rule_matches: ["Zoning Changes", "Development Rights"],
-          created_at: "2024-01-15T10:00:00Z"
-        },
-        {
-          id: 2,
-          title: "Development Charges Increase - Downtown Core",
-          review_status: "reviewing",
-          relevance_score: 0.85,
-          municipality: "Toronto",
-          property_matches: ["456 Queen Street East"],
-          rule_matches: ["Development Charges", "Cost Impact"],
-          created_at: "2024-01-16T11:00:00Z"
-        },
-        {
-          id: 3,
-          title: "New Residential Development Guidelines",
-          review_status: "reviewing",
-          relevance_score: 0.78,
-          municipality: "Toronto",
-          property_matches: ["789 Lakeshore Boulevard"],
-          rule_matches: ["Residential Development", "Guidelines"],
-          created_at: "2024-01-17T12:00:00Z"
-        },
-        {
-          id: 4,
-          title: "Industrial Zone Minor Variance Application",
-          review_status: "pending",
-          relevance_score: 0.92,
-          municipality: "Mississauga",
-          property_matches: ["789 Lakeshore Boulevard"],
-          rule_matches: ["Industrial Zoning", "Minor Variance"],
-          created_at: "2024-01-18T13:00:00Z"
-        },
-        {
-          id: 5,
-          title: "Heritage Designation Proposal - Downtown Core",
-          review_status: "resolved",
-          relevance_score: 0.72,
-          municipality: "Toronto",
-          property_matches: ["123 King Street West"],
-          rule_matches: ["Heritage Designation", "Historical Preservation"],
-          created_at: "2024-01-19T14:00:00Z"
-        }
-      ];
-      
-      // Uncomment this when backend is working:
-      // const response = await api.get('/api/alerts', { params });
-      // return response.data;
+      const response = await api.get('/api/alerts/', { params });
+      return response.data;
     },
     get: async (id: number) => {
       const response = await api.get(`/api/alerts/${id}`);
       return response.data;
     },
     updateStatus: async (id: number, status: string) => {
-      const response = await api.put(`/api/alerts/${id}/status`, { status });
+      const response = await api.patch(`/api/alerts/${id}/status`, { status });
       return response.data;
     },
     addComment: async (id: number, comment: string) => {
