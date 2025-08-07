@@ -38,7 +38,7 @@ export function AlertCard({ alert }: AlertCardProps) {
     false_positive: XCircle,
   };
 
-  const StatusIcon = statusIcons[alert.review_status as keyof typeof statusIcons];
+  const StatusIcon = statusIcons[alert.review_status as keyof typeof statusIcons] || AlertCircle;
 
   const updateStatus = useMutation({
     mutationFn: (status: string) => 
@@ -75,19 +75,25 @@ export function AlertCard({ alert }: AlertCardProps) {
               {alert.title}
             </h3>
             
-            <div className="flex items-center space-x-4 text-sm text-gray-600">
-              <span className="flex items-center">
-                <Calendar className="w-4 h-4 mr-1" />
-                {new Date(alert.meeting_date).toLocaleDateString()}
-              </span>
-              <span className="flex items-center">
-                <MapPin className="w-4 h-4 mr-1" />
-                {alert.municipality}
-              </span>
-              <span className="flex items-center">
-                <FileText className="w-4 h-4 mr-1" />
-                {alert.meeting_type}
-              </span>
+                        <div className="flex items-center space-x-4 text-sm text-gray-600">
+              {alert.meeting_date && (
+                <span className="flex items-center">
+                  <Calendar className="w-4 h-4 mr-1" />
+                  {new Date(alert.meeting_date).toLocaleDateString()}
+                </span>
+              )}
+              {alert.municipality_name && (
+                <span className="flex items-center">
+                  <MapPin className="w-4 h-4 mr-1" />
+                  {alert.municipality_name}
+                </span>
+              )}
+              {alert.meeting_type && (
+                <span className="flex items-center">
+                  <FileText className="w-4 h-4 mr-1" />
+                  {alert.meeting_type}
+                </span>
+              )}
               {alert.comment_count > 0 && (
                 <span className="flex items-center">
                   <MessageSquare className="w-4 h-4 mr-1" />
@@ -96,7 +102,7 @@ export function AlertCard({ alert }: AlertCardProps) {
               )}
             </div>
 
-            {alert.property_matches.length > 0 && (
+            {alert.property_matches && Array.isArray(alert.property_matches) && alert.property_matches.length > 0 && (
               <div className="mt-3">
                 <span className="text-sm font-medium text-gray-700">Properties: </span>
                 <span className="text-sm text-gray-600">
@@ -105,7 +111,7 @@ export function AlertCard({ alert }: AlertCardProps) {
               </div>
             )}
 
-            {alert.rule_matches.length > 0 && (
+            {alert.rule_matches && Array.isArray(alert.rule_matches) && alert.rule_matches.length > 0 && (
               <div className="mt-2">
                 <span className="text-sm font-medium text-gray-700">Matched Rules: </span>
                 <span className="text-sm text-gray-600">
